@@ -1,0 +1,9 @@
+#wday=Пн=1
+#wday=Вт=2
+#wday=Ср=3
+#wday=Чт=4
+#wday=Пт=5
+#wday=Сб=6
+#wday=Вс=0
+#day	mon	year	hour	min	wday	command	workdir
+-	-	-	17	20	1	notify 'Внимание!!!' "Пора на домой\nЗакрой окно!!" | play $HOME/bin/data/sounds/Будильник.ogg	-
