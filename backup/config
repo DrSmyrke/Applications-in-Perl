@@ -1,0 +1,12 @@
+#!/usr/bin/perl
+$backuppack=1;	#Степень сжатия данных при сохранении (0-9)
+$coderpack=1;	#Степень сжатия данных при кодировании (0-9)
+$backupdir="/run/user/1000/gvfs/dav:host=webdav.yandex.ru,ssl=true/BACKUP";
+$backupDirOpenCommand="caja davs://webdav.yandex.ru";
+$home=$ENV{"HOME"};
+$valgreen="#01B003";
+$valorange="#FF7200";
+$valblack="#000000";
+$valfiol="#9600D8";
+#$term="$pwd/xterm -e";
+$term="xterm -e";
