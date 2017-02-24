@@ -28,11 +28,13 @@ use utf8;
 ############## Данные ##################
 $pwd=$0;$pwd=~s#(.*)/.*#$1#;
 if(-l $0){$pwd=readlink $0;$pwd=~s#(.*)/.*#$1#;}
-if(!-f "$pwd/backup.dat"){
+$find=0;
+if(-f "$pwd/backup.dat" and !$find){require "$pwd/config";$find=1;}
+if(!$find){
+	print "[$pwd]\n";
 	print "Списка данных для синхронизации не обнаружено!!!\n";
 	exit;
 }
-require "$pwd/config";
 sub getSize{($sz)=@_;if($sz<1024){$st="$sz  байт(а)";}else{if($sz>1024 and $sz<1024000){$sz=substr($sz/1024,0,5);$st="$sz Кб";}else{if($sz>1024000 and  $sz<1024000000){$sz=substr($sz/1048576,0,5);$st="$sz Mб";}else{if($sz>1024000000){$sz=substr($sz/1048576000,0,5);$st="$sz Гб";}}}}return $st;}
 ############ Инициализация ###############
 open fs,"<$pwd/backup.dat";@list=<fs>;close fs;chomp @list;
@@ -97,28 +99,28 @@ backupUPD();
 Gtk2->main;
 
 sub getElem{
-	($conttype,$nam)=@_;
+	($conttype,$path,$backupPath)=@_;
+	$path=~s/~/$home/eg;
 	$ch=$cb=-1;
-
 	if($conttype eq "DIR" or $conttype eq "ARJ"){
-		if(-d "$home/$nam"){
-			$c=`find $home/$nam/ -type l | wc -l`;chomp $c;$ch+=$c;
-			$c=`find $home/$nam/ -type f | wc -l`;chomp $c;$ch+=$c;
+		if(-d "$path"){
+			$c=`find $path/ -type l | wc -l`;chomp $c;$ch+=$c;
+			$c=`find $path/ -type f | wc -l`;chomp $c;$ch+=$c;
 			$ch++;
 		}
-		if(-d "$backup/$nam"){
-			$c=`find $backup/$nam/ -type l | wc -l`;chomp $c;$cb+=$c;
-			$c=`find $backup/$nam/ -type f | wc -l`;chomp $c;$cb+=$c;
+		if(-d "$backup/$backupPath"){
+			$c=`find $backup/$backupPath/ -type l | wc -l`;chomp $c;$cb+=$c;
+			$c=`find $backup/$backupPath/ -type f | wc -l`;chomp $c;$cb+=$c;
 			$cb++;
 		}
-		if(-f "$backup/$nam.7z"){
-			@cmd=`7z l $backup/$nam.7z`;
+		if(-f "$backup/$backupPath.7z"){
+			@cmd=`7z l $backup/$backupPath.7z`;
 			($cmd,$cmd,$cb)=split(" ",pop @cmd);
 		}
 	}
 	if($conttype eq "FILE"){
-		if(-f "$home/$nam"){$ch=1;}
-		if(-f "$backup/$nam"){$cb=1;}
+		if(-f "$path"){$ch=1;}
+		if(-f "$backup/$backupPath"){$cb=1;}
 	}
 	$clh=$clb="valblack";
 	$t="";
@@ -134,27 +136,29 @@ sub getElem{
 	return (eval("\$$clh"),$ch,eval("\$$clb"),$cb,$t);
 }
 sub getSizeStr{
-	($conttype,$nam)=@_;
+	($conttype,$path,$backupPath)=@_;
+	$path=~s/~/$home/eg;
 	$ch=-1;$cb=-1;
 	if($conttype eq "DIR" or $conttype eq "ARJ"){
-		if(-d "$home/$nam"){
-			@cmd=`du -b -c $home/$nam`;($ch)=split(" ",pop @cmd);
-			($device,$inode,$m,$nlink,$uid,$gid,$rdev,$size,$atime,$mtime,$ctime,$blksize,$blocks)=stat("$home/$nam");$mtimeh=$mtime;
+		if(-d "$path"){
+			@cmd=`du -b -c $path`;($ch)=split(" ",pop @cmd);
+			($device,$inode,$m,$nlink,$uid,$gid,$rdev,$size,$atime,$mtime,$ctime,$blksize,$blocks)=stat("$path");$mtimeh=$mtime;
 		}
-		if(-d "$backup/$nam"){
-			@cmd=`du -b -c $backup/$nam`;($cb)=split(" ",pop @cmd);
-			($device,$inode,$m,$nlink,$uid,$gid,$rdev,$size,$atime,$mtime,$ctime,$blksize,$blocks)=stat("$backup/$nam");$mtimeb=$mtime;
+		if(-d "$backup/$backupPath"){
+			@cmd=`du -b -c $backup/$backupPath`;($cb)=split(" ",pop @cmd);
+			($device,$inode,$m,$nlink,$uid,$gid,$rdev,$size,$atime,$mtime,$ctime,$blksize,$blocks)=stat("$backup/$backupPath");$mtimeb=$mtime;
 		}
-		if(-f "$backup/$nam.7z"){
-			($device,$inode,$m,$nlink,$uid,$gid,$rdev,$size,$atime,$mtime,$ctime,$blksize,$blocks)=stat("$backup/$nam.7z");$cb=$size;$mtimeb=$mtime;
+		if(-f "$backup/$backupPath.7z"){
+			($device,$inode,$m,$nlink,$uid,$gid,$rdev,$size,$atime,$mtime,$ctime,$blksize,$blocks)=stat("$backup/$backupPath.7z");$cb=$size;$mtimeb=$mtime;
 		}
 	}
 	if($conttype eq "FILE"){
-		if(-f "$home/$nam"){
-			($device,$inode,$m,$nlink,$uid,$gid,$rdev,$size,$atime,$mtime,$ctime,$blksize,$blocks)=stat("$home/$nam");$ch=$size;$mtimeh=$mtime;
+		if(-f "$path"){
+			($device,$inode,$m,$nlink,$uid,$gid,$rdev,$size,$atime,$mtime,$ctime,$blksize,$blocks)=stat("$path");$ch=$size;$mtimeh=$mtime;
 		}
-		if(-f "$backup/$nam"){
-			($device,$inode,$m,$nlink,$uid,$gid,$rdev,$size,$atime,$mtime,$ctime,$blksize,$blocks)=stat("$backup/$nam");$cb=$size;$mtimeb=$mtime;
+		
+		if(-f "$backup/$backupPath"){
+			($device,$inode,$m,$nlink,$uid,$gid,$rdev,$size,$atime,$mtime,$ctime,$blksize,$blocks)=stat("$backup/$backupPath");$cb=$size;$mtimeb=$mtime;
 		}
 	}
 	$clh=$clb=$clh2=$clb2="valblack";
@@ -196,19 +200,20 @@ sub backupBackup{
 	$fd=$file_dialog->get_filename();
 	system "rm -rf $fd/* & cp -r . $fd";
 	$backupstat->set_text($backupstat->get_text." OK");
-	system 'play.Зефште "$HOME/bin/data/sounds/Задание_выполнено.wav" | notify-send -i gnome-terminal "Резервное копирование завершено !!!"';
+	system 'notify-send -i gnome-terminal "Резервное копирование завершено !!!"';
 }
 sub backupBuild{
 	foreach $str(@list){
-		($conttype,$name)=split("	",$str);
-		$name=decode("utf8",$name);
+		($conttype,$path,$backupPath)=split("	",$str);
+		$path=decode("utf8",$path);
+		$backupPath=decode("utf8",$backupPath);
 		$but=Gtk2::Button->new;
-		eval "\$but->signal_connect(\"clicked\"=>sub{\$select=\"$name\";\$type=\"$conttype\";if(\$mode){\$butbackupgohome->show;\$butbackupgobackup->show;}\$backupstat->set_text(\">: Selected: [\$type->\$select]   \");});";
+		eval "\$but->signal_connect(\"clicked\"=>sub{\$select=\"$path\";\$selectToBackup=\"$backupPath\";\$type=\"$conttype\";if(\$mode){\$butbackupgohome->show;\$butbackupgobackup->show;}\$backupstat->set_text(\">: Selected: [\$type->\$select]   \");});";
 		$but->set_relief("none");
 		$tablekont->pack_start($but,0,1,0);
 		$butvbox=Gtk2::VBox->new;
 			$hbox=Gtk2::HBox->new;
-			$hbox->pack_start(Gtk2::Label->new($name),0,0,0);
+			$hbox->pack_start(Gtk2::Label->new($path),0,0,0);
 			$hbox->add(Gtk2::HSeparator->new);
 		$butvbox->pack_start($hbox,0,1,0);
 			$table=Gtk2::Table->new(1,7,FALSE);
@@ -238,39 +243,47 @@ sub backupBuild{
 	}
 }
 sub backupEx{
+	$path=$select;
+	$path=~s/~/$home/eg;
 	if($type eq "ARJ"){
-		if(-d "$home/$select" or -f "$home/$select"){system "rm -r $home/$select";}
-		cmd("7z x $backup/$select.7z -o$home");
+		if(-d "$path" or -f "$path"){system "rm -r $path";}
+		@tmp=split("/",$path);
+		pop @tmp;
+		$path=join("/",@tmp);
+		cmd("7z x $backup/$selectToBackup.7z -o$path");
 	}
 	if($type eq "FILE"){
-		if(-f "$home/$select"){system "rm $home/$select";}
-		cmd("cp -v $backup/$select $home");
+		if(-f "$path"){system "rm $path";}
+		cmd("cp -v $backup/$selectToBackup $path");
 	}
 	if($type eq "DIR"){
-		if(-d "$home/$select"){system "rm -r $home/$select/*";}
-		cmd("cp -r -v $backup/$select $home");
+		if(-d "$path"){system "rm -r $path/*";}
+		cmd("cp -r -v --parents $backup/$selectToBackup $path");
 	}
-	backupUPD();
 }
 sub backupBack{
+	$path=$select;
+	$path=~s/~/$home/eg;
 	if($type eq "ARJ"){
-		if(-f "$backup/$select.7z"){unlink "$backup/$select.7z";}
-		cmd("7z a -mx=$backuppack $backup/$select.7z $home/$select");
+		if(-f "$backup/$selectToBackup.7z"){unlink "$backup/$selectToBackup.7z";}
+		cmd("7z a -mx=$backuppack $backup/$selectToBackup.7z $path");
 	}
 	if($type eq "FILE"){
-		if(-f "$backup/$select"){unlink "$backup/$select";}
-		cmd("cp -v $home/$select $backup");
+		if(-f "$backup/$selectToBackup"){unlink "$backup/$selectToBackup";}
+		cmd("cp -v --parents $path $backup/$selectToBackup");
 	}
 	if($type eq "DIR"){
-		if(-d "$backup/$select"){system "rm -r $backup/$select/*";}
-		cmd("cp -r -v $home/$select $backup");
+		if(-d "$backup/$selectToBackup"){system "rm -r $backup/$selectToBackup/*";}
+		if(!-d "$backup/$selectToBackup"){
+			cmd("mkdir -p $backup/$selectToBackup");
+		}
+		cmd("cp -r -v $path/* $backup/$selectToBackup");
 	}
-	backupUPD();
 }
 sub backupUPD{
 	$backup="N/A";
 	$mode=0;
-	if(!-d $backupdir){cmd($backupDirOpenCommand);print "123\n";}
+	if(!-d $backupdir){cmd($backupDirOpenCommand);}
 	if(-d $backupdir){$backup=$backupdir;$mode=1;}
 	$butbackupgohome->hide;
 	$butbackupgobackup->hide;
@@ -283,15 +296,15 @@ sub backupUPD{
 	}
 	$i=0;
 	foreach $str(@list){
-		($conttype,$name)=split("	",$str);
-		$name=decode("utf8",$name);
-		$backupstat->set_text(">: Searching:  [$conttype->$name] ... ");Gtk2->main_iteration while Gtk2->events_pending;
-		($colh,$filesh,$colb,$filesb,$rb)=getElem($conttype,$name);
+		($conttype,$path,$backupPath)=split("	",$str);
+		$path=decode("utf8",$path);
+		$backupstat->set_text(">: Searching:  [$conttype->$path] ... ");Gtk2->main_iteration while Gtk2->events_pending;
+		($colh,$filesh,$colb,$filesb,$rb)=getElem($conttype,$path,$backupPath);
 		eval "\$labelhe$i->set_markup(\"<span color='$colh'>$filesh</span>\");";
 		eval "\$labelbe$i->set_markup(\"<span color='$colb'>$filesb</span>\");";
 		eval "\$labelhe$i->set_tooltip_text(\"$rb\");";
 		eval "\$labelbe$i->set_tooltip_text(\"$rb\");";
-		($colh,$sizeh,$colb,$sizeb,$colh2,$mtimeh,$colb2,$mtimeb)=getSizeStr($conttype,$name);
+		($colh,$sizeh,$colb,$sizeb,$colh2,$mtimeh,$colb2,$mtimeb)=getSizeStr($conttype,$path,$backupPath);
 		eval "\$labelhs$i->set_markup(\"<span color='$colh'>$sizeh</span>\");";
 		eval "\$labelbs$i->set_markup(\"<span color='$colb'>$sizeb</span>\");";
 		eval "\$labelhs$i->set_tooltip_text(\"$rb\");";

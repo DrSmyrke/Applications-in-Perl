@@ -1,21 +1,18 @@
-DIR	Images
-DIR	.gimp-2.6
-DIR	.gimp-2.8
-DIR	.libreoffice
-DIR	.tilda
-DIR	.mybrowser
-FILE	.bashrc
-FILE	.face
-FILE	passwd
-ARJ	ФейсКонтроль
-ARJ	bin
-ARJ	Docs
-ARJ	www
-ARJ	Templates
-ARJ	.fonts
-ARJ	.purple
-ARJ	.Skype
-ARJ	.icons
-ARJ	.themes
-ARJ	minecraft
-ARJ	.mozilla
+DIR	/etc/udev/rules.d	udev/rules.d
+FILE	~/.bashrc	bashrc
+FILE	~/.face	face
+FILE	~/passwd	passwd
+ARJ	~/ФейсКонтроль	ФейсКонтроль
+ARJ	~/.gimp-2.6	gimp-2.6
+ARJ	~/.gimp-2.8	gimp-2.8
+ARJ	~/bin	bin
+ARJ	~/Images	Images
+ARJ	~/Docs	Docs
+ARJ	~/Templates	Templates
+ARJ	~/.fonts	fonts
+ARJ	~/.purple	purple
+ARJ	~/.Skype	Skype
+ARJ	~/.icons	icons
+ARJ	~/.themes	themes
+ARJ	~/minecraft	minecraft
+ARJ	~/.mozilla	mozilla
