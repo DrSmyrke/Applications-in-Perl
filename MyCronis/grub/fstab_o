@@ -1,0 +1,4 @@
+# /etc/fstab: static file system information.
+#
+proc            /proc           proc    defaults        0       0
+UUID=uuidhere /               ext3    defaults,errors=remount-ro 0       1

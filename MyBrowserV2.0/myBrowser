@@ -1,0 +1,1000 @@
+#!/usr/bin/perl
+# MyBrowser, a web browser, based on DrSmyrke
+#
+# Any original DrSmyrke code is licensed under the BSD license
+#
+# All code written since the fork of DrSmyrke is licensed under the GPL
+#
+#
+# Copyright (c) 2013 Prokofiev Y. <Smyrke2005@yandex.ru>
+# All rights reserved.
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses>.
+#
+#
+#
+# Версия программы 2.0
+############## Переменные ###########
+my $version="2.0";
+my $myproto="mybrowser";
+my $homedata="$ENV{HOME}/.mybrowser";
+if(@ARGV[0] eq "-h" or @ARGV[0] eq "--help"){print getHelp();exit;}
+my $url=join("%20",@ARGV);
+my $dir=$app=$0;$dir=~s#(.*)/.*#$1#;
+if(-l $0){$dir=$app=readlink $0;$dir=~s#(.*)/.*#$1#;}
+$app=decode('utf8',$app);
+#Проверка конфигов
+if(!-d "$homedata"){mkdir "$homedata";}
+if(!-f "$homedata/settings.cfg"){copy("$dir/settings.cfg","$homedata/settings.cfg");}
+if(!-f "$homedata/bookmarks"){copy("$dir/bookmarks","$homedata/bookmarks");}
+if(!-d "$homedata/themes"){mkdir "$homedata/themes";}
+if(!-d "$homedata/themes/default"){mkdir "$homedata/themes/default";}
+if(!-f "$homedata/themes/default/gtkrc"){copy("$dir/themes/default/gtkrc","$homedata/themes/default/gtkrc");}
+if(!-f "$homedata/themes/default/index.html"){copy("$dir/themes/default/index.html","$homedata/themes/default/index.html");}
+# инициализация переменных
+my $statbar;
+my $winlist;
+#my $reffer;
+my $hoverLink;
+my $ctrlMode;
+my $findpanel;
+my $findpagefield;
+my $sysmenu;
+my $loginFormData;
+my @downloads;
+
+#my $downloadfolder;
+#my $firstOpen;
+#my $historysave;
+#my $consolemesssave;
+#my $saveloginformdata;
+my %SETTINGS;
+loadConf();
+############## Инициализация ###########
+use Gtk2 -init;
+use Gtk2::WebKit;
+use utf8;
+use Encode;
+use strict;
+$SIG{CHLD}="IGNORE";
+$SIG{INT}=\&quit;
+$SIG{TERM}=\&quit;
+#Инициализация основного окна
+my $main=Gtk2::Window->new("toplevel");
+$main->set_title("MyBrowser v$version by Dr.Smyrke");
+$main->set_default_size(640,480);
+if(-f "$dir/my.png"){$main->set_default_icon_from_file("$dir/my.png");}
+$main->signal_connect(destroy=>sub{&quit;});
+$main->signal_connect(key_release_event=>sub{
+	my $widget=shift;
+	my $event=shift;
+	my $keyval=$event->keyval;
+#	print "[$keyval]\n";
+	if($keyval==65507){$ctrlMode=0;}									#Left Ctrl
+});
+$main->signal_connect(key_press_event=>sub{
+	my $widget=shift;
+	my $event=shift;
+	my $keyval=$event->keyval;
+#	print "[$keyval]\n";
+	if($ctrlMode and $keyval==65307){&quit;}							#Left Ctrl + Escape
+	if($keyval==65507){$ctrlMode=1;}									#Left Ctrl
+	if($keyval==65474){ 												#F5
+		my $webview=findWebView($winlist->get_current_page);
+		$webview->reload;
+	}
+	if($ctrlMode and $keyval==119 or $ctrlMode and $keyval==1731){ 		#Left Ctrl + W
+		my $webview=findWebView($winlist->get_current_page);
+		if($webview){
+			$winlist->remove_page($winlist->page_num(Gtk2::Widget::parent($webview)));
+		}
+	}
+	if($ctrlMode and $keyval==102 or $ctrlMode and $keyval==1729){ 		#Left Ctrl + F
+		$findpanel->show;
+		$findpagefield->grab_focus;
+	}
+});
+#Инициализация разметки окна
+my $vbox=Gtk2::VBox->new(0,1);
+	#Панель управления
+	my $panel=Gtk2::HBox->new(0,0);
+		my $butmenu=Gtk2::Button->new;
+		$butmenu->set_image(Gtk2::Image->new_from_stock("gtk-properties","menu"));
+		$butmenu->signal_connect(clicked=>sub{
+			(my $x,my $y)=$main->get_position;
+			$sysmenu->popup(undef,undef,sub{return($x+10,$y+40,0)},undef,0,0);
+		});
+		$panel->pack_start($butmenu,0,1,0);
+		my $butback=Gtk2::Button->new;
+		$butback->set_image(Gtk2::Image->new_from_stock("gtk-go-back","menu"));
+		$butback->signal_connect(clicked=>sub{
+			my $webview=findWebView($winlist->get_current_page);
+			$webview->go_back;
+		});
+		$panel->pack_start($butback,0,1,0);
+		my $butnext=Gtk2::Button->new;
+		$butnext->set_image(Gtk2::Image->new_from_stock("gtk-go-forward","menu"));
+		$butnext->signal_connect(clicked=>sub{
+			my $webview=findWebView($winlist->get_current_page);
+			$webview->go_forward;
+		});
+		$panel->pack_start($butnext,0,1,0);
+		my $addressbar=Gtk2::Entry->new;
+		$addressbar->signal_connect(activate=>sub{	# ввод адреса
+			my $webview=findWebView($winlist->get_current_page);
+			my $url=shift @_;
+			ActionURL($webview,$url->get_text);
+			#my $tmp=$addressbar->get_text;
+			#ActionURL($addressbar->get_text,"no");
+			#if($tmp=~/[А-Я]/ or $tmp=~/[а-я]/){$tmp=conv($tmp);}
+		});
+		$panel->pack_start($addressbar,1,1,0);
+		my $butgo=Gtk2::Button->new;
+		$butgo->set_image(Gtk2::Image->new_from_stock("gtk-apply","menu"));
+		$butgo->signal_connect(clicked=>sub{
+			my $webview=findWebView($winlist->get_current_page);
+			ActionURL($webview,$addressbar->get_text);
+		});
+		$panel->pack_start($butgo,0,1,0);
+		my $butupd=Gtk2::Button->new;
+		$butupd->set_image(Gtk2::Image->new_from_stock("gtk-refresh","menu"));
+		$butupd->signal_connect(clicked=>sub{
+			my $webview=findWebView($winlist->get_current_page);
+			$webview->reload;
+		});
+		$panel->pack_start($butupd,0,1,0);
+		my $butstop=Gtk2::Button->new;
+		$butstop->set_image(Gtk2::Image->new_from_stock("gtk-stop","menu"));
+		$butstop->signal_connect(clicked=>sub{
+			my $webview=findWebView($winlist->get_current_page);
+			$webview->stop_loading;
+		});
+		$panel->pack_start($butstop,0,1,0);
+		my $butadd=Gtk2::Button->new;
+		$butadd->set_image(Gtk2::Image->new_from_stock("gtk-add","menu"));
+		$butadd->signal_connect(clicked=>sub{createPage("$myproto://bookmarks");});
+		$panel->pack_start($butadd,0,1,0);
+		my $findfield=Gtk2::Entry->new;
+		$findfield->signal_connect(activate=>sub{
+			my $url="http://yandex.ru/yandsearch?text=".$findfield->get_text."&lr=25";
+			createPage($url);
+		});
+		$panel->pack_start($findfield,0,1,0);
+		my $butfind=Gtk2::Button->new;
+		$butfind->set_image(Gtk2::Image->new_from_stock("gtk-find","menu"));
+		$butfind->signal_connect(clicked=>sub{
+			my $url="http://yandex.ru/yandsearch?text=".$findfield->get_text."&lr=25";
+			createPage($url);
+		});
+		$panel->pack_start($butfind,0,1,0);
+		my $buthome=Gtk2::Button->new;
+		$buthome->set_tooltip_text("home page");
+		$buthome->set_image(Gtk2::Image->new_from_stock("gtk-home","menu"));
+		$buthome->signal_connect(clicked=>sub{
+			my $webview=findWebView($winlist->get_current_page);
+			ActionURL($webview,"$myproto://home");
+		});
+		$panel->pack_start($buthome,0,1,0);
+		my $butss=Gtk2::Button->new;
+		$butss->set_tooltip_text("get Screenshoot");
+		$butss->set_image(Gtk2::Image->new_from_stock("gtk-convert","menu"));
+		$butss->signal_connect(clicked=>sub{
+			my $webview=findWebView($winlist->get_current_page);
+			getScreenShoot($webview);
+		});
+		$panel->pack_start($butss,0,1,0);
+		my $butbm=Gtk2::Button->new;
+		$butbm->set_tooltip_text("add to bookmarks");
+		$butbm->set_image(Gtk2::Image->new_from_stock("gtk-dnd","menu"));
+		$butbm->signal_connect(clicked=>sub{
+			my $webview=findWebView($winlist->get_current_page);
+			open FILE,">>$homedata/bookmarks";
+			print FILE "LINK	".$webview->get_uri."	".$webview->get_title."\n";
+			close FILE;
+		});
+		$panel->pack_start($butbm,0,1,0);
+		my $butdm=Gtk2::Button->new;
+		$butdm->set_tooltip_text("Downloads");
+		$butdm->set_image(Gtk2::Image->new_from_stock("gtk-go-down","menu"));
+		$butdm->signal_connect(clicked=>sub{createPage("$myproto://downloads");});
+		$panel->pack_start($butdm,0,1,0);
+	$vbox->pack_start($panel,0,1,0);
+	#Панель окон
+	$winlist=Gtk2::Notebook->new;
+	$winlist->set_scrollable(1);
+	$winlist->signal_connect(switch_page=>sub{	#SWITCH-PAGE
+		#$butbm->set_sensitive(0);
+		(undef,undef,my $pagenum)=@_;
+		my $webview=findWebView($pagenum);
+		printData($webview);
+		butNavView($webview);
+		print "SWITCH-PAGE #$pagenum\n";
+	});
+	
+	$vbox->pack_start($winlist,1,1,0);
+	#Панель поиска
+	my $findlabel=Gtk2::Label->new;
+	$findpanel=Gtk2::HBox->new(0,0);
+		$findpagefield=Gtk2::Entry->new;
+		$findpagefield->signal_connect(key_release_event=>sub{
+			my $webview=findWebView($winlist->get_current_page);
+			if(!$webview->search_text($findpagefield->get_text,0,0,0)){
+				$findlabel->set_text("Ничего не найдено!!!");
+			}else{
+				$findlabel->set_text("");
+			}
+		});
+		$findpanel->pack_start($findpagefield,0,1,0);
+		my $butfindback=Gtk2::Button->new;
+		$butfindback->set_image(Gtk2::Image->new_from_stock("gtk-go-back","menu"));
+		$butfindback->signal_connect(clicked=>sub{
+			my $webview=findWebView($winlist->get_current_page);
+			$webview->search_text($findpagefield->get_text,0,-1,0);
+		});
+		$findpanel->pack_start($butfindback,0,1,0);
+		my $butfindnext=Gtk2::Button->new;
+		$butfindnext->set_image(Gtk2::Image->new_from_stock("gtk-go-forward","menu"));
+		$butfindnext->signal_connect(clicked=>sub{
+			my $webview=findWebView($winlist->get_current_page);
+			$webview->search_text($findpagefield->get_text,0,0,0);
+		});
+		$findpanel->pack_start($butfindnext,0,1,0);
+		$findpanel->pack_start($findlabel,1,1,0);
+		my $butfindclose=Gtk2::Button->new;
+		$butfindclose->set_image(Gtk2::Image->new_from_stock("gtk-close","menu"));
+		$butfindclose->signal_connect(clicked=>sub{
+			$findpanel->hide;
+		});
+		$findpanel->pack_start($butfindclose,0,1,0);
+	$vbox->pack_start($findpanel,0,1,0);
+	#Панель выбора при запоминании пароля
+	my $passpanel=Gtk2::HBox->new(0,0);
+	$passpanel->pack_start(Gtk2::Label->new("Запомнить пароль:    "),0,1,0);
+		my $butpasssave=Gtk2::Button->new("Запомнить");
+		$butpasssave->signal_connect(clicked=>sub{
+			open FSPASS,">>$homedata/pass.db";
+			print FSPASS "allways	$loginFormData\n";
+			close FSPASS;
+			$passpanel->hide;
+		});
+	$passpanel->pack_start($butpasssave,0,1,0);
+		my $butpassnosave=Gtk2::Button->new("Нет");
+		$butpassnosave->signal_connect(clicked=>sub{$passpanel->hide;});
+	$passpanel->pack_start($butpassnosave,0,1,0);
+		my $butpassnosavenever=Gtk2::Button->new("Никогда");
+		$butpassnosavenever->signal_connect(clicked=>sub{
+			open FSPASS,">>$homedata/pass.db";
+			print FSPASS "never	$loginFormData\n";
+			close FSPASS;
+			$passpanel->hide;
+		});
+	$passpanel->pack_start($butpassnosavenever,0,1,0);
+	$vbox->pack_start($passpanel,0,1,0);
+	#Строка состояния
+		$statbar=Gtk2::Label->new;
+		$statbar->set_alignment(0,0.5);
+		$statbar->set_ellipsize("middle");
+	$vbox->pack_start($statbar,0,1,0);
+$main->add($vbox);
+#Инициализация всплывающего меню
+$sysmenu=Gtk2::Menu->new;
+my $menuitem=Gtk2::ImageMenuItem->new_with_label("Настройки");
+$sysmenu->append($menuitem);
+$menuitem->signal_connect(activate=>sub{createPage("$myproto://settings");});
+$menuitem=Gtk2::ImageMenuItem->new_with_label("Закладки");
+$sysmenu->append($menuitem);
+$menuitem->signal_connect(activate=>sub{createPage("$myproto://bookmarks");});
+$menuitem=Gtk2::ImageMenuItem->new_with_label("Загрузки");
+$sysmenu->append($menuitem);
+$menuitem->signal_connect(activate=>sub{createPage("$myproto://downloads");});
+$menuitem=Gtk2::ImageMenuItem->new_with_label("История");
+$sysmenu->append($menuitem);
+$menuitem->signal_connect(activate=>sub{createPage("$myproto://history");});
+$sysmenu->append(Gtk2::SeparatorMenuItem->new);
+$menuitem=Gtk2::ImageMenuItem->new_with_label("Поиск");
+$sysmenu->append($menuitem);
+$menuitem->signal_connect(activate=>sub{$findpanel->show;$findpagefield->grab_focus;});
+$menuitem=Gtk2::ImageMenuItem->new_with_label("Печать");
+$sysmenu->append($menuitem);
+$menuitem->signal_connect(activate=>sub{
+	my $webview=findWebView($winlist->get_current_page);
+	$webview->get_main_frame->print;
+});
+$sysmenu->show_all;
+#Инициализация окна
+$main->show_all;
+$findpanel->hide;
+$passpanel->hide;
+$butback->hide;
+$butnext->hide;
+Gtk2::Rc->parse("$homedata/themes/".$SETTINGS{'theme'}."/gtkrc");
+if($url){createPage($url);}else{createPage($SETTINGS{'firstOpen'});}
+Gtk2->main;
+############## Функции ###########
+sub quit{
+	if($SETTINGS{'savePages'}){
+		my $tmp;
+		open FILE,"<$homedata/bookmarks";
+		while(my $str=<FILE>){
+			(my $type,my $link,my $name)=split("	",$str);
+			if($type ne "OPEN"){$tmp.=$str;}
+		}
+		close FILE;
+		foreach my $str(Gtk2::Container::get_children($winlist)){
+			foreach $str(Gtk2::Container::get_children($str)){
+				if($str->get_name eq "WebKitWebView"){$tmp.="OPEN	".$str->get_uri."\n";last;}
+			}
+		}
+		open FILE,">$homedata/bookmarks";print FILE $tmp;close FILE;
+	}
+	unlink "$homedata/concole";
+	print "[QUIT]\n";
+	Gtk2->main_quit;
+	exit;
+}
+sub copy{
+	(my $if,my $of)=@_;
+	open fs,"<$if";open fs2,">$of";while(my $str=<fs>){print fs2 $str;}close fs;close fs2;
+	if(-f $of){return 1;}else{return 0;}
+}
+sub conv{
+	my $str=shift @_;
+	$str=~tr/A-Z/a-z/;
+	$str=~tr/А-Я/а-я/;
+	$str=~tr/й/q/;
+	$str=~tr/ц/w/;
+	$str=~tr/у/e/;
+	$str=~tr/к/r/;
+	$str=~tr/е/t/;
+	$str=~tr/н/y/;
+	$str=~tr/г/u/;
+	$str=~tr/ш/i/;
+	$str=~tr/щ/o/;
+	$str=~tr/з/p/;
+	$str=~tr/ф/a/;
+	$str=~tr/ы/s/;
+	$str=~tr/в/d/;
+	$str=~tr/а/f/;
+	$str=~tr/п/g/;
+	$str=~tr/р/h/;
+	$str=~tr/о/j/;
+	$str=~tr/л/k/;
+	$str=~tr/д/l/;
+	$str=~tr/я/z/;
+	$str=~tr/ч/x/;
+	$str=~tr/с/c/;
+	$str=~tr/м/v/;
+	$str=~tr/и/b/;
+	$str=~tr/т/n/;
+	$str=~tr/ь/m/;
+	$str=~tr/ю/./;
+	return $str;
+}
+sub createPage{
+	my $url=shift @_;
+	my $scrollwin=Gtk2::ScrolledWindow->new;
+		my $webview=Gtk2::WebKit::WebView->new;
+			$webview->signal_connect(load_progress_changed=>sub{	#LOAD PROGRESS
+				(my $webview,my $prz)=@_;
+				if($winlist->page_num(Gtk2::Widget::parent($webview)) eq $winlist->get_current_page){
+					printData($webview);
+				}
+			});
+			$webview->signal_connect(load_error=>sub{	#LOAD ERROR
+				(my $webview,undef,my $string)=@_;
+				print "ERROR [$string]\n";
+				(my $proto)=split("://",$string);
+				my $url=$string;
+				$url=substr($url,length($proto)+3);
+				$proto=~tr/A-Z/a-z/;
+				$proto=~tr/А-Я/а-я/;
+				if($proto eq $myproto){ActionURL($webview,$string);return 1;}
+				#my @data=readThemePage();
+				#my $tmp=Gtk2::Widget::parent($webview)->get_name;
+				#if($tmp=~/[А-Я]/ or $tmp=~/[а-я]/){$tmp=conv($tmp);}
+				#my $content=replaceData(join("",@data),"ERRROR !!!",genContent('Cannot open <span class="valorange">'.$string.'</span><br><br>Maybe you would like to open <a href="'.$tmp.'">'.$tmp.'</a>'));
+				#$webview->load_html_string($content,$string);
+				return 0;
+			});
+			$webview->signal_connect(title_changed=>sub{	#TITLE CHANGE
+				(my $webview,undef,my $string)=@_;
+				my $tmp=$winlist->get_tab_label(Gtk2::Widget::parent($webview));
+				foreach my $str(Gtk2::Container::get_children($tmp)){
+					if($str->get_name eq "GtkLabel"){$str->set_text($string);last;}
+				}
+				butNavView($webview);
+			});
+			$webview->signal_connect(console_message=>sub{	#ERROR CONSOLE
+				(undef,my $string,my $int,my $string2)=@_;
+				if($SETTINGS{'consolemesssave'}){
+					open fs,">>$homedata/concole";print fs "$string [$int] $string2\n";close fs;
+				}
+				return 1;
+			});
+			$webview->signal_connect(hovering_over_link=>sub{	#LINK HOVER
+				(my $webview,undef,$hoverLink)=@_;
+#				$link=~s/&/&amp;/g;
+				printData($webview,$hoverLink);
+			});
+			$webview->signal_connect(create_web_view=>sub{	#NEW WINDOW
+				print "NEW WINDOW [$hoverLink]\n";
+				createPage($hoverLink);
+				return undef;
+			});
+			$webview->signal_connect(populate_popup=>sub{	#CREATE POPUP MENU
+				(undef,my $menu)=@_;
+				$menu->append(Gtk2::SeparatorMenuItem->new);
+				my $menuitem;
+				if(!$webview->get_view_source_mode){
+					$menuitem=Gtk2::ImageMenuItem->new_with_label("Source code");
+					$menuitem->signal_connect(activate=>sub{
+						my $webview=findWebView($winlist->get_current_page);
+						createPage("source://".$webview->get_uri);
+					});
+					$menu->append($menuitem);
+				}
+				$menuitem=Gtk2::ImageMenuItem->new_from_stock("gtk-zoom-in");
+				$menuitem->signal_connect(activate=>sub{
+					my $webview=findWebView($winlist->get_current_page);
+					$webview->zoom_in();
+				});
+				$menu->append($menuitem);
+				$menuitem=Gtk2::ImageMenuItem->new_from_stock("gtk-zoom-out");
+				$menuitem->signal_connect(activate=>sub{
+					my $webview=findWebView($winlist->get_current_page);
+					$webview->zoom_out();
+				});
+				$menu->append($menuitem);
+				$menuitem=Gtk2::ImageMenuItem->new_from_stock("gtk-zoom-100");
+				$menuitem->signal_connect(activate=>sub{
+					my $webview=findWebView($winlist->get_current_page);
+					$webview->set_zoom_level(1.0);
+				});
+				$menu->append($menuitem);
+				$menu->append(Gtk2::SeparatorMenuItem->new);
+				$menuitem=Gtk2::ImageMenuItem->new_from_stock("gtk-about");
+				$menuitem->signal_connect(activate=>sub{createPage("$myproto://about");});
+				$menu->append($menuitem);
+				$menu->show_all;
+			});
+			$webview->signal_connect(load_finished=>sub{	#LOAD FINISHED
+				(my $webview)=@_;
+				if($SETTINGS{'saveloginformdata'}){parsForms($webview);}
+				if($winlist->page_num(Gtk2::Widget::parent($webview)) eq $winlist->get_current_page){$addressbar->set_progress_fraction(0);}
+				if($SETTINGS{'historysave'}){
+					open FILE,">>$homedata/history";
+					print FILE ltime()."	".$webview->get_title."	".$webview->get_uri."\n";
+					close FILE;
+				}
+			});
+			$webview->signal_connect(script_alert=>sub{		#JS ALERT
+				(my $webview,undef,my $string)=@_;
+				if(substr($string,0,13) eq "LOGINFORMDATA" and $SETTINGS{'saveloginformdata'}){
+					(my $uri)=split("[?]",$webview->get_uri);
+					$loginFormData="$uri	".substr($string,14);
+					$passpanel->show;
+					#print "JS Alert: [".$webview->get_uri."]>:[$string]\n";
+					return 1;
+				}
+				return 0;
+			});
+			$webview->signal_connect(download_requested=>sub{		#DOWNLOAD FILE
+				(undef,my $obj)=@_;
+				push(@downloads,$obj);
+				print "Download file: [".$obj->get_uri."]\n";
+				#(undef,$tmp)=@_;
+				#$tmp->set_destination_uri("file://$downloadfolder/".$tmp->get_suggested_filename);
+				return 1;
+			});
+			$webview->signal_connect(scroll_event=>sub{
+				(undef,my $obj)=@_;
+				if($ctrlMode and $obj->direction eq "up"){$webview->zoom_in();return 1;}
+				if($ctrlMode and $obj->direction eq "down"){$webview->zoom_out();return 1;}
+				return 0;
+			});
+	$scrollwin->add($webview);
+	$winlist->append_page($scrollwin,createPageLabel("New page"));
+	$scrollwin->show_all;
+	ActionURL($webview,$url);
+}
+sub ActionURL{
+	my $webview=shift @_;
+	my $url=shift @_;
+	#my $decode=shift @_;
+	(my $proto)=split("://",$url);
+	$url=substr($url,length($proto)+3);
+	if($url eq ""){$url=$proto;$proto="http";}
+	$proto=~tr/A-Z/a-z/;
+	$proto=~tr/А-Я/а-я/;
+	#if($decode ne "no"){
+	#	$proto=decode('utf8',$proto);
+	#	$url=decode('utf8',$url);
+	#}
+	#$reffer="$proto://$url";
+	print "OPEN [$proto://$url]\n";
+	if($proto eq "https" or $proto eq "http" or $proto eq "file"){
+		$webview->open("$proto://$url");
+		#Gtk2::Widget::parent($webview)->set_name("$proto://$url");
+		return 1;
+	}
+	if($proto eq "source"){
+		$webview->set_view_source_mode(1);
+		$webview->open($url);
+		my $tmp=$winlist->get_tab_label(Gtk2::Widget::parent($webview));
+		foreach my $str(Gtk2::Container::get_children($tmp)){
+			if($str->get_name eq "GtkLabel"){$str->set_text("Source code");last;}
+		}
+		#Gtk2::Widget::parent($webview)->set_name($url);
+		return 1;
+	}
+	if($proto eq $myproto){
+		($url,my $args)=split("/#",$url);
+		$args=~s/%(..)/pack("c",hex($1))/eg;
+		$args=~tr/+/ /;
+		my %arguments;
+		foreach my $elem(split("[|]",$args)){
+			(my $param,my $value)=split("=",$elem);
+			$arguments{$param}=$value;
+		}
+		if($url eq "home"){
+			my @list=readBookmarks("HOME");
+			if(!$list[0]){$list[0]="$myproto://bookmarks";}
+			$webview->open($list[0]);
+			#Gtk2::Widget::parent($webview)->set_name($list[0]);
+		}
+		if($url eq "open"){
+			my @list=readBookmarks("OPEN");
+			$webview->open($list[0]);
+			#Gtk2::Widget::parent($webview)->set_name($list[0]);
+			shift @list;
+			foreach my $uri(@list){(my $link,my $name,my $image)=split("	",$uri);createPage($link);}
+		}
+		if($url eq "bookmarks"){
+			if($arguments{"cmd"} eq "del"){
+				open FILE,"<$homedata/bookmarks";my @data=<FILE>;close FILE;
+				delete @data[$arguments{"b"}];
+				open FILE,">$homedata/bookmarks";print FILE @data;close FILE;
+			}
+			if($arguments{"cmd"} eq "edit"){
+				open FILE,"<$homedata/bookmarks";my @data=<FILE>;close FILE;
+				@data[$arguments{"b"}]="LINK	".$arguments{"link"}."	".$arguments{"name"}."\n";
+				open FILE,">$homedata/bookmarks";print FILE @data;close FILE;
+			}
+			if($arguments{"cmd"} eq "editHomepage"){
+				my $tmp;
+				open FILE,"<$homedata/bookmarks";
+				while(my $str=<FILE>){
+					(my $type)=split("	",$str);
+					if($type ne "HOME"){$tmp.=$str;}
+				}
+				close FILE;
+				$tmp.="HOME	".$arguments{"link"}."\n";
+				open FILE,">$homedata/bookmarks";print FILE $tmp;close FILE;
+			}
+			my @list=readBookmarks("LINK");
+			my @data=readThemePage();
+			my $content=replaceData(join("",@data),"Bookmarks",genContent(genBookmarksList()));
+			$webview->load_html_string($content,"$myproto://bookmarks");
+			#Gtk2::Widget::parent($webview)->set_name("$myproto://bookmarks");
+		}
+		if($url eq "downloads"){
+			if($arguments{"cmd"} eq "start"){
+				@downloads[$arguments{"d"}]->start;
+				print "DOWNLOAD STARTING: [".@downloads[$arguments{"d"}]->get_uri."]\n";
+			}
+			if($arguments{"cmd"} eq "cancel"){
+				print "DOWNLOAD CANCEL: [".@downloads[$arguments{"d"}]->get_uri."]\n";
+				my $file;
+				($file,$file)=split("file://",@downloads[$arguments{"d"}]->get_destination_uri);
+				unlink $file;
+				delete @downloads[$arguments{"d"}];
+			}
+			if($arguments{"cmd"} eq "del"){
+				#Gtk2::GtkObject::destroy(@downloads[$arguments{"d"}]);
+				delete @downloads[$arguments{"d"}];
+			}
+			my @data=readThemePage();
+			my $content=replaceData(join("",@data),"Downloads",genContent(genDownloads()));
+			$webview->load_html_string($content,"$myproto://downloads");
+		}
+		if($url eq "settings"){
+			if($arguments{"cmd"} eq "edit"){
+				open FILE,"<$homedata/settings.cfg";my @data=<FILE>;close FILE;
+				my $save=0;
+				foreach my $str(@data){
+					my $tmp=$str;
+					chomp $tmp;
+					if(substr($tmp,0,1) ne "#" and $tmp ne ""){
+						(my $param)=split("=",$tmp);
+						if($param eq $arguments{"param"}){
+							$str="$param=".$arguments{"value"}."\n";
+							$save=1;
+						}
+					}
+				}
+				if($save){
+					open FILE,">$homedata/settings.cfg";print FILE @data;close FILE;
+					loadConf();
+				}
+			}
+			my @data=readThemePage();
+			my $content=replaceData(join("",@data),"Settings",decode("utf-8",genContent(genSettings())));
+			$webview->load_html_string($content,"$myproto://settings");
+		}
+		if($url eq "about"){
+			my @data=readThemePage();
+			my $content=replaceData(join("",@data),"About",genContent(genAbout()));
+			$webview->load_html_string($content,"$myproto://about");
+		}
+		if($url eq "history"){
+			if($arguments{"cmd"} eq "clear"){
+				unlink "$homedata/history";
+			}
+			my @data=readThemePage();
+			my $content=replaceData(join("",@data),"History",genContent(genHistory()));
+			$webview->load_html_string($content,"$myproto://history");
+		}
+		return 1;
+	}
+}
+sub createPageLabel{
+	my $text=shift @_;
+	my $hbox=Gtk2::HBox->new(0,0);
+		my $label=Gtk2::Label->new($text);
+		$label->set_alignment(0,0.5);
+		$label->set_ellipsize("PANGO_ELLIPSIZE_END");
+		$label->set_tooltip_text($text);
+	$hbox->pack_start($label,1,1,0);
+		my $but=Gtk2::Button->new;
+		$but->set_image(Gtk2::Image->new_from_stock("gtk-close","menu"));
+		$but->set_name("my-close-button");
+		$but->set_relief("GTK_RELIEF_NONE");
+		$but->signal_connect(clicked=>sub{	#CLOSE PAGE
+			my $but=shift @_;
+			my $nbook=Gtk2::Widget::parent(Gtk2::Widget::parent($but));
+			foreach my $str(Gtk2::Container::get_children($nbook)){
+				if($nbook->get_tab_label($str) eq Gtk2::Widget::parent($but)){
+					$nbook->remove_page($nbook->page_num($str));
+				}
+			}
+		});
+	$hbox->pack_start($but,0,0,0);
+	$hbox->set_size_request(100,16);
+	$hbox->show_all;
+	return $hbox;
+}
+sub printData{
+	my $webview=shift @_;
+	my $addData=shift @_;
+	$addressbar->set_text($webview->get_uri);
+	$addressbar->set_progress_fraction($webview->get_progress);
+	my $add=($addData)?" | $addData":"";
+	$statbar->set_text(" ".substr($webview->get_progress*100,0,4)."% | ".$webview->get_encoding.$add);
+}
+sub findWebView{
+	my $pagenum=shift @_;
+	my $webview=undef;
+	if($pagenum eq -1){return $webview;}
+	foreach my $str(Gtk2::Container::get_children($winlist->get_nth_page($pagenum))){
+		if($str->get_name eq "WebKitWebView"){$webview=$str;last;}
+	}
+	return $webview;
+}
+sub loadConf{
+	open FCFG,"<$homedata/settings.cfg";
+	while(my $tmp=<FCFG>){
+		chomp $tmp;
+		if(substr($tmp,0,1) eq "#" or $tmp eq ""){next;}
+		(my $param,my $value)=split("=",$tmp);
+		$value=~s/~/$ENV{HOME}/g;
+		$value=~s/\$myproto/$myproto/g;
+		$SETTINGS{$param}=$value;
+	}
+	close FCFG;
+}
+sub replaceData{
+	my $str=shift @_;
+	my $title=shift @_;
+	my $content=shift @_;
+	$str=~s/===TITLE===/$title/g;
+	$str=~s/===CONTENT===/$content/g;
+	return $str;
+}
+sub genContent{
+	my $content=shift @_;
+	my $text="<center><h2><b>Welcome to MyBrowser v$version by Dr.Smyrke</b></h2></center>$content";
+	return $text;
+}
+sub butNavView{
+	my $webview=shift @_;
+	if($webview->can_go_back){$butback->show;}else{$butback->hide;}
+	if($webview->can_go_forward){$butnext->show;}else{$butnext->hide;}
+}
+sub getScreenShoot{
+	my $webview=shift @_;
+	(my $width,my $height)=$webview->window->get_size;
+	# create blank pixbuf to hold the image
+	my $gdkpixbuf=Gtk2::Gdk::Pixbuf->new ('rgb',0,8,$width,$height);
+	$gdkpixbuf->get_from_drawable($webview->window,undef, 0, 0, 0, 0,$width,$height);
+	#only jpeg and png is supported !!!! it's 'jpeg', not 'jpg'
+	$gdkpixbuf->save($SETTINGS{'downloadfolder'}."/".$webview->get_title."-".localtime.".jpg", 'jpeg', quality => 100);
+	return 0;
+}
+sub readBookmarks{
+	my $gtype=shift @_;
+	my @list;
+	open FILE,"<$homedata/bookmarks";my @data=<FILE>;close FILE;chomp @data;
+	foreach my $str(@data){
+		(my $type,my $link,my $name)=split("	",$str);
+		if(!$gtype){push(@list,$link);}
+		if($gtype and $gtype eq $type){push(@list,"$link	$name");}
+	}
+	return @list;
+}
+sub readThemePage{
+	open FILE,"<$homedata/themes/".$SETTINGS{'theme'}."/index.html";
+	my @data=<FILE>;
+	close FILE;
+	return @data;
+}
+sub genBookmarksList{
+	my $text;
+	open FILE,"<$homedata/bookmarks";
+	my $i=0;
+	my $table=0;
+	while(my $str=<FILE>){
+		chomp $str;
+		(my $type,my $link,my $name)=split("	",decode("utf-8",$str));
+		if($type eq "HOME"){$text.='<b>Домашняя страница:</b> [<span class="valgreen">'.$link.'</span>] <a href="javascript:void(0);" onClick="var page=prompt(\'Домашняя страница\',\''.$link.'\');if(page){	document.location.href=\'/#cmd=editHomepage|link=\'+page;}">[Изменить]</a><br>'."\n";}
+		if($type eq "LINK"){
+			if(!$table){$text.='<table class="bbox">'."\n";$table=1;}
+			$text.='<tr><td><a href="'.$link.'">'.$name.'</a></td><td>'.$link.'</td><td align="center"><a href="/#cmd=del|b='.$i.'">[Удалить]</a> <a href="javascript:void(0);" onClick="var name=prompt(\'Имя\',\''.$name.'\');var link=prompt(\'Ссылка\',\''.$link.'\');if(name && link){	document.location.href=\'/#cmd=edit|b='.$i.'|name=\'+name+\'|link=\'+link;}">[Изменить]</a></td></tr>'."\n";
+		}
+		$i++;
+	}
+	close FILE;
+	$text.="</table>";
+	return $text;
+}
+sub genDownloads{
+	my $context;
+	my $i=0;
+	my $prz=0;
+	foreach my $elem(@downloads){
+		if($elem->get_destination_uri eq ""){
+			$elem->set_destination_uri("file://".$SETTINGS{'downloadfolder'}."/".$elem->get_suggested_filename);
+		}
+		$context.='<table class="downloadItem" width="100%"><tr><td>';
+		$context.='<b>'.$elem->get_suggested_filename.'</b> [<a href="'.$elem->get_uri.'">Ссылка на файл</a>]<br>';
+		$prz=$elem->get_progress*100;
+		$context.='<progress max="100" value="'.int($prz).'"></progress> <b>'.substr($prz,0,5).'%</b> ['.getSize($elem->get_current_size).' / '.getSize($elem->get_total_size).']<br>';
+		$context.='<b>Куда:</b> '.$elem->get_destination_uri.' / '.$elem->get_status.'<br>';
+		$context.='</td><td width="100px" align="center">';
+		if($elem->get_status eq "created"){
+			$context.='<a href="/#cmd=start|d='.$i.'">[Начать]</a>';
+		}
+		if($elem->get_status eq "error"){
+			$context.='<a href="/#cmd=start|d='.$i.'">[Продолжить]</a>';
+		}
+		if($elem->get_status eq "started"){
+			$context.='<a href="/#cmd=cancel|d='.$i.'">[Отменить]</a>';
+		}
+		if($elem->get_status eq "finished"){
+			$context.='<a href="/#cmd=del|d='.$i.'">[Удалить]</a></br>';
+		}
+		$context.='</td></tr></table>';
+		$i++;
+	}
+	$context.='<meta http-equiv="Refresh" content="1;URL='.$myproto.'://downloads"/>';
+	return $context;
+}
+sub genSettings{
+	my $context;
+	open FCFG,"<$homedata/settings.cfg";
+	$context.='<table class="cbox">';
+	while(my $tmp=<FCFG>){
+		chomp $tmp;
+		if($tmp eq ""){next;}
+		if(substr($tmp,0,1) eq "#"){
+			$context.='<tr><td colspan="3" class="komment">'.$tmp.'</td></tr>';
+		}else{
+			(my $param,my $value)=split("=",$tmp);
+			if($value eq undef){next;}
+			$context.='<tr><td class="valorange" style="font-size:12pt;">'.$param.'</td><td><b>'.$value.'</b></td><td><a href="javascript:void(0);" onClick="var value=prompt(\'Value\',\''.$value.'\');if(value){	document.location.href=\'/#cmd=edit|param='.$param.'|value=\'+value;}">[Edit]</a></td></tr>';
+			$context.='<tr><td colspan="3"><br></td></tr>';
+		}
+	}
+	close FCFG;
+	$context.="</table>\n";
+	return $context;
+}
+sub genAbout{
+	my $context;
+	$context.='
+<script type="text/javascript">
+var line="Developer: Dr.Smyrke [Smyrke2005@yandex.ru]<br>Engine: Webkit<br>Language: Perl/GTK2/Cairo<br>Application version: '.$version.'<br>";
+var speed=100;
+var i=0;
+function init(){
+	if(i++<line.length){document.getElementById("text").innerHTML=line.substring(0,i);setTimeout(\'init()\',speed);}
+}
+</script>
+<span id="text" class="valgreen" style="font-family:\'Courier New\',\'Terminus\',\'Monospace\'"></span>
+<script type="text/javascript">init();</script><br><br><br>
+';
+	my $helppage=getHelp();
+	$helppage=~s/\n/<br>/g;
+	$context.='<span class="valyellow" style="font-size:12pt;">'.$helppage."</span>";
+	return $context;
+}
+sub genHistory{
+	my $context;
+	my $file;
+	if(-f "$homedata/history"){
+		(undef,undef,undef,undef,undef,undef,undef,my $size)=stat("$homedata/history");
+		$context.='<b>Размер файла истории: </b><span class="valgreen">'.getSize($size).'</span> <a href="/#cmd=clear">[Очистить]</a>';
+	}else{$context.='<b>История навигации пуста</b>';}
+	open FILE,"<$homedata/history";
+	while(my $tmp=<FILE>){
+		chomp $tmp;
+		(my $date,my $title,my $link)=split("	",decode("utf-8",$tmp));
+		$file='<tr><td class="val">'.$date.'</td><td><a href="'.$link.'" target="_blank">'.$title.'</a></td></tr>'."\n".$file;
+	}
+	close FILE;
+	$context.='<table class="bbox cbox">'.$file.'</table>';
+	return $context;
+}
+sub parsForms{
+	my $webview=shift @_;
+	my $find=0;
+	(my $uri)=split("[?]",$webview->get_uri);
+	#print ">>>[$uri]->[".$webview->get_progress."]\n";
+	open FSPASS,"<$homedata/pass.db";
+	while(my $str=<FSPASS>){
+		chomp($str);
+		(my $action,my $puri,my $form,my $fields)=split("	",$str);
+		if($action eq "never"){next;}
+		if($uri=~/$puri/){$webview->execute_script(setFormsFieldData($form,$fields));$find=1;last;}
+	}
+	if(!$find){$webview->execute_script(parsLoginFormsScript());}
+	close FSPASS;	
+}
+sub getSize{my $st;(my $sz)=@_;if($sz<1024){$st="$sz  байт(а)";}else{if($sz>1024 and $sz<1024000){$sz=substr($sz/1024,0,5);$st="$sz Кб";}else{if($sz>1024000 and  $sz<1024000000){$sz=substr($sz/1048576,0,5);$st="$sz Mб";}else{if($sz>1024000000){$sz=substr($sz/1048576000,0,5);$st="$sz Гб";}}}}return $st;}
+sub getHelp{
+	my $text;
+	my $i=0;
+	$text.="=== Help Page for MyBrowser $version by Dr.Smyrke ===\n";
+	$text.="
+Usage: $0 OPTION or URL
+
+OPTIONS: 
+-h,--help			To see the current page
+";
+	$text.="\n=== Thank you for choosing my application ===\n";
+	(undef,undef,undef,undef,undef,undef,undef,my $size)=stat($0);
+	$i=0;
+	open FS,"<$0";
+	while(my $tmp=<FS>){$i++;}
+	close FS;
+	$text.="=== The app contains $i lines of code and takes ".getSize($size)." of disk space ===\n";
+	return $text;
+}
+sub ltime{
+	(my $sek,my $min,my $hour,my $day,my $mon,my $year)=localtime;
+	$mon++;
+	if($mon<10){$mon="0$mon";}
+	if($day<10){$day="0$day";}
+	if($hour<10){$hour="0$hour";}
+	if($min<10){$min="0$min";}
+	if($sek<10){$sek="0$sek";}
+	$year+=1900;
+	return "$day.$mon.$year [$hour:$min]";
+}
+#####################################
+#			JS functions			#
+#####################################
+sub setFormsFieldData{
+	my $form=shift @_;
+	my @fields=split(";",shift @_);
+	my $script="";
+	if($form){
+		(my $fftype,my $ffid)=split(">>>",$form);
+		if($fftype eq "id"){
+			$script.='var obj=document.getElementById("'.$ffid.'");';
+		}else{
+			$script.='var obj=document.forms.'.$ffid.';';
+		}
+		$script.='
+			var fields=obj.getElementsByTagName("INPUT");
+		';
+	}else{
+		$script.='var fields=document.getElementsByTagName("INPUT");';
+	}
+	foreach my $field(@fields){
+		#print ">>[$field]\n";
+		(my $ftype,my $fid,my $fvalue)=split(">>>",$field);
+		$script.='
+			for(var i=0; i<fields.length; i++){
+				if(fields[i].'.$ftype.'=="'.$fid.'"){fields[i].value="'.$fvalue.'";break;}
+			}
+		';
+	}
+	return $script;
+}
+sub parsLoginFormsScript{
+	my $script='var stringReturn=new Array("LOGINFORMDATA");
+		var fieldsData=new Array();
+		var forms=document.getElementsByTagName("FORM");
+		//function validateAndSubmit(){
+		//	alert("123");
+		//}
+		for(var i=0; i<forms.length; i++){
+			if(forms[i].onkeypress){
+				if(typeof forms[i].onkeypress=="function"){
+					var test=">"+forms[i].onkeypress+"<";
+					var tmp=test.replace(/\r/g,"");
+					test=tmp.replace(/\n/g,"");
+					var mass=test.split("}");
+					mass.pop();
+					test=mass.join();
+					mass=test.split("{ ");
+					mass.shift();
+					test=mass.join();
+				}
+			}
+			forms[i].onkeypress=function(event){
+				event = event || window.event;
+				var code = navigator.appName == "Netscape" ? event.which : event.keyCode;
+				// если не enter - пропускаем
+				if(code != 13){return;}
+				parsForm(this);
+				return true;
+			}
+			forms[i].onsubmit=function(){parsForm(this);return true;}
+		}
+		function parsForm(obj){
+			if(obj.id){
+				stringReturn[1]="id>>>"+obj.id;
+			}else{
+				if(obj.name){stringReturn[1]="name>>>"+obj.name;}
+			}
+			var fields=obj.getElementsByTagName("INPUT");
+			var ch=0;
+			for(var c=0;c<fields.length;c++){
+				if(fields[c].type=="text" && fields[c].value!=""){
+					if(fields[c].id){
+						fieldsData[ch]="id>>>"+fields[c].id+">>>"+fields[c].value;
+					}else{
+						if(fields[c].name){
+							fieldsData[ch]="name>>>"+fields[c].name+">>>"+fields[c].value;
+						}
+					}
+					ch++;
+				}
+				if(fields[c].type=="password" && fields[c].value!=""){
+					if(fields[c].id){
+						fieldsData[ch]="id>>>"+fields[c].id+">>>"+fields[c].value;
+					}else{
+						if(fields[c].name){
+							fieldsData[ch]="name>>>"+fields[c].name+">>>"+fields[c].value;
+						}
+					}
+					ch++;
+				}
+			}
+			stringReturn[2]=fieldsData.join(";");
+			alert(stringReturn.join("	"));
+		}
+	';
+	return $script;
+}

@@ -1,0 +1,178 @@
+#!/usr/bin/perl
+$home=$ENV{"HOME"};
+foreach $arg(@ARGV){
+	($param,$val)=split("=",$arg);
+	eval("\$$param='$val';");
+}
+if($cmd eq "partrescan"){cmd('sudo fdisk -l | grep "/dev" > partitions.dat');}
+if($cmd eq "addist"){open fs,">>ist";print fs "$val\n";close fs;}
+if(-f "ist"){open fs,"<ist";@ist=<fs>;close fs;}
+if($cmd eq "remist"){	
+	($disk,$part,$url,$imagefull,$image,$istnum)=split("[,]",$str);
+	delete $ist[$istnum];
+	open fs,">ist";print fs @ist;close fs;
+}
+if($cmd eq "updateist"){
+	$i=0;
+	foreach $str(@ist){
+		chomp $str;
+		($is)=split "	",$str;
+		($proto,$url)=split("://",$is);
+		if(substr($proto,0,1) eq "/"){$url=$proto;$proto="root";}
+		if($proto eq "root"){
+			@list=();
+			foreach $str(glob "$url/*"){
+				@tmp=split "/",$str;
+				$name=pop @tmp;
+				($device,$inode,$mode,$nlink,$uid,$gid,$rdev,$size,$atime,$mtime,$ctime,$blksize,$blocks)=stat($str);
+				push @list,"$name:$size";
+				if(-d $str and !-f "$str/image"){pop @list;}
+			}
+			$list=join "=",@list;
+			$ist[$i]="$is	$list\n";
+		}
+		if($proto eq "smb"){
+			cmd("./mount.smb $url list");
+			open fs,"<list.tmp";
+			$list=<fs>;
+			close fs;
+			unlink "list.tmp";
+			$ist[$i]="$is	$list\n";
+		}
+		$i++;
+	}
+	open fs,">ist";
+	print fs @ist;
+	close fs;
+}
+if($cmd eq "gparted"){cmd('sudo gparted');}
+if($cmd eq "backmbr"){
+	($disk,$part,$url,$imagefull,$image)=split("[,]",$str);
+	($proto,$url)=split("://",$url);
+	if(substr($proto,0,1) eq "/"){$url=$proto;$proto="root";}
+	if($proto eq "root"){cmd("sudo ./backupmbr $url $disk $name");}
+	if($proto eq "smb"){
+		cmd("./mount.smb $url mount && sudo ./backupmbr \$(cat mountdir) $disk $name && ./mount.smb - umount");
+	}
+}
+if($cmd eq "instmbr"){
+	($disk,$part,$url,$imagefull,$image)=split("[,]",$str);
+	($proto,$url)=split("://",$url);
+	if(substr($proto,0,1) eq "/"){$url=$proto;$proto="root";}
+	if($proto eq "root"){cmd("sudo ./installmbr $url $disk $image");}
+	if($proto eq "smb"){
+		cmd("./mount.smb $url mount && sudo ./installmbr \$(cat mountdir) $disk $name && ./mount.smb - umount");
+	}
+}
+if($cmd eq "remimg"){
+	($disk,$part,$url,$imagefull,$image)=split("[,]",$str);
+	($proto,$url)=split("://",$url);
+	if(substr($proto,0,1) eq "/"){$url=$proto;$proto="root";}
+	if($proto eq "root"){cmd("rm $imagefull && sleep 2");}
+	if($proto eq "smb"){
+		cmd("./mount.smb $url mount && rm \$(cat mountdir)/$image || rm -rf \$(cat mountdir)/$image && ./mount.smb - umount && sleep 2");
+	}
+}
+if($cmd eq "install"){
+	($disk,$part,$url,$imagefull,$image)=split("[,]",$str);
+	($proto,$url)=split("://",$url);
+	if(substr($proto,0,1) eq "/"){$url=$proto;$proto="root";}
+	if(substr($image,-6) eq "tar.lz" or substr($image,-6) eq "tar.gz"){
+		cmd("sudo ./installer_tar $part $imagefull $grub $disk");
+	}
+	#if($part ne "" and $proto eq "root"){
+		
+	#}
+	#system "./xterm_x64 -e 'sudo gparted' || ./xterm_x32 -e 'sudo gparted'";
+}
+if($cmd eq "backup"){
+	if($name eq ""){$name="mycronis";}
+	if($archmode eq ""){$archmode=0;}
+	if($archtype eq ""){$archtype="tlz";}
+	($disk,$part,$url,$imagefull,$image)=split("[,]",$str);
+	($proto,$url)=split("://",$url);
+	if(substr($proto,0,1) eq "/"){$url=$proto;$proto="root";}
+	if($disk ne ""){
+		if($part ne ""){
+			if($proto eq "root"){
+				if($archtype eq "tlz"){cmd("sudo ./backup_tar_lz $part $url $name");}
+			}
+			if($proto eq "smb"){
+				if($archtype eq "tlz"){cmd("./mount.smb $url mount && sudo ./backup_tar_lz $part \$(cat mountdir) $name && ./mount.smb - umount");}
+			}
+		}
+	}
+}
+chomp @ist;
+print "<script>var objSelected=new Array();var arhtype=archmode=null;function ArchType(val){var obj=document.getElementById('archtype');arhtype=val;if(val==null || val==''){obj.style.display='block';}else{obj.style.display='none';x=prompt('Введите имя образа','');archmode=prompt('Введите степень сжатия данных [0-9]','');document.location.href='?cmd=backup&str='+objSelected+'&archtype='+arhtype+'&archmode='+archmode+'&name='+x;}}</script>";
+print '<div id="archtype">';
+	print '<fieldset><legend>Архивация данных</legend>';
+	print '<table width="100%">';
+	print '<tr><td><input type="radio" name="archtype" value="7z" onChange="ArchType(this.value);"> 7z</td></tr>';
+	print '<tr><td><input type="radio" name="archtype" value="gz" onChange="ArchType(this.value);"> gZip</td></tr>';
+	print '<tr><td><input type="radio" name="archtype" value="tgz" onChange="ArchType(this.value);"> Tar + gZip</td></tr>';
+	print '<tr><td><input type="radio" name="archtype" value="tlz" onChange="ArchType(this.value);"> Tar + Lzma</td></tr>';
+	print '<tr><td><input type="radio" name="archtype" value="cpio" onChange="ArchType(this.value);"> cpio</td></tr>';
+	print '<tr><td><input type="radio" name="archtype" value="initramfs" onChange="ArchType(this.value);"> initramfs</td></tr>';
+	print '</table>';
+	print '</fieldset>';
+print '</div>';
+print "<b>Выбран диск:</b> <span id=\"vdisk\">N/A</span>";
+	print " | <a href=\"javascript:void(0);\" class=\"a\" onClick=\"x=prompt('Введите имя образа','');document.location.href='?cmd=backmbr&str='+objSelected+'&name='+x;\">Сохранить MBR</a>";
+	print " | <a href=\"javascript:void(0);\" class=\"a\" onClick=\"document.location.href='?cmd=instmbr&str='+objSelected;\">Восстановить MBR</a>\n";
+print "<b>Выбран раздел:</b> <span id=\"vpart\">N/A</span>\n";
+print "<b>Выбран источник:</b> <span id=\"vist\">N/A</span>";
+	print " | <a href=\"javascript:void(0);\" class=\"a\" onClick=\"document.location.href='?cmd=remist&str='+objSelected;\">Убрать из списка</a>\n";
+print "<b>Выбран образ:</b> <span id=\"vimage\">N/A</span>";
+	print " | <a href=\"javascript:void(0);\" class=\"a\" onClick=\"if(confirm('Установить GRUB?')){x=1;}else{x=0;};document.location.href='?cmd=install&str='+objSelected+'&grub='+x;\">Установить</a>";
+	print " | <a href=\"javascript:void(0);\" class=\"a\" onClick=\"document.location.href='?cmd=remimg&str='+objSelected;\">Удалить образ</a>";
+	print " | <a href=\"javascript:void(0);\" class=\"a\" onClick=\"ArchType();\">Создать образ</a>\n";
+print "<a href=\"?cmd=gparted\" class=\"a\">GPARTED</a>";
+print "<table style=\"width:95%;margin:auto;\">";
+print "<tr valign=\"top\"><td><fieldset><legend>Локальные устройства [<a href=\"?cmd=partrescan\" class=\"a\">Обновить</a>]</legend>";
+open fs,"<partitions.dat";
+$i=0;
+while($str=<fs>){
+	chomp $str;
+	($val1,$val2,$val3,$size,$id,$sys)=split(" ",$str);
+	($dev)=split(":",$val2);
+	if($val2=~/dev/){
+		if($i){print "</div>";}else{$i++;}
+		print "<div id=\"$dev\" style=\"cursor:pointer;\" onMouseOver=\"this.style.border='1px solid silver';this.style.background='rgba(0,0,0,0.5)';\" onMouseOut=\"if(objSelected[0]!=this.id){this.style.border='0px solid silver';this.style.background='none';}\" onClick=\"objSelected[0]=document.getElementById('vdisk').innerHTML=this.id;\"><img src=\"img/hdd.png\" height=\"15px\"> <b>DISK: $dev [".getSize($id)."]</b>";
+	}
+	if($val1=~/dev/){
+		if($val2 eq "*"){($val1,$val2,$val2,$val3,$size,$id,$sys)=split(" ",$str);}
+		if($id eq 7){$id="ntfs";}
+		if($id eq 83){$id="ext4";}
+		if($id eq 0){$id="none";}
+		if($id eq 82){$id="swap";}
+		print "<div id=\"$val1\" style=\"cursor:pointer;\" onMouseOver=\"this.style.border='1px solid orange';this.style.background='rgba(0,0,0,0.5)';\" onMouseOut=\"if(objSelected[1]!=this.id){this.style.border='0px solid silver';this.style.background='none';}\" onClick=\"objSelected[1]=document.getElementById('vpart').innerHTML=this.id;\">\\_ PART: $val1   [".getSize($size*1000)."]   id:$id    system:$sys</div>";
+	}
+}
+print "</div>";
+close fs;
+print "</fieldset></td><td><fieldset><legend>Источники [<a href=\"javascript:void(0);\" class=\"a\" onClick=\"x=prompt('Введите адрес','');if(x){document.location.href='?cmd=addist&val='+x;}\">Добавить</a>] [<a href=\"?cmd=updateist\" class=\"a\">Обновить</a>]</legend>";
+$i=$ch=0;
+foreach $str(@ist){
+	($is,$images)=split "	",$str;
+	$img=($is=~/:\/\//)?"lanfolder":"folder";
+	if($i){print "</div>";}else{$i++;}
+	print "<div id=\"$is\" style=\"cursor:pointer;\" onMouseOver=\"this.style.border='1px solid silver';this.style.background='rgba(0,0,0,0.5)';\" onMouseOut=\"if(objSelected[2]!=this.id){this.style.border='0px solid silver';this.style.background='none';}\" onClick=\"objSelected[2]=document.getElementById('vist').innerHTML=this.id;objSelected[5]=$ch;\"><img src=\"img/$img.png\" height=\"15px\"> <b>$is</b>\n";
+	print '<table width="100%" cellspacing="0">';
+	$c=0;
+	foreach $str(split "=",$images){
+		($str,$size)=split(":",$str);
+		if($c){$c--;$add="";}else{$c++;$add="background:rgba(255,255,255,0.1);";}
+		print '<tr style="'.$add.'"><td width="10px;">\_</td>';
+		print "<td><div id=\"$is/$str\" style=\"cursor:pointer;\" onMouseOver=\"this.style.border='1px solid orange';\" onMouseOut=\"if(objSelected[3]!=this.id){this.style.border='0px solid silver';}\" onClick=\"objSelected[3]=this.id;document.getElementById('vimage').innerHTML=objSelected[4]='$str';\">$str</div></td><td width=\"75px;\">".getSize($size)."</td></tr>";
+	}
+	print '</table>';
+	$ch++;
+}
+print "</div>";
+print "</fieldset></td></tr>";
+print "</table>";
+
+# получение размера
+sub getSize{($sz)=@_;if($sz<1024){$st="$sz  байт(а)";}if($sz>1024 & $sz<1024000){$sz=substr($sz/1024,0,5);$st="$sz Кб";}if($sz>1024000 & $sz<1024000000){$sz=substr($sz/1048576,0,5);$st="$sz Mб";}if($sz>1024000000){$sz=substr($sz/1048576000,0,5);$st="$sz Гб";}return $st;}
+sub cmd{$cmd=shift @_;system "../bin/xterm_x64 -e '$cmd' || ../bin/xterm_x32 -e '$cmd'";}

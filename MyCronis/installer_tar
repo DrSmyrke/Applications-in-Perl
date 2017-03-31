@@ -1,0 +1,16 @@
+#!/bin/bash
+INSTDIR=/tmp/installer
+OLDDIR=$PWD
+#создаем папку, в которой будем работать
+mkdir $INSTDIR
+#отмонтируем на случай, если смонтируется автоматом
+umount $1
+mount $1 $INSTDIR || exit
+echo "Start copy ..."
+cd $INSTDIR
+tar xvpf "$2"
+echo "OK"
+if (($3==1)); then
+	$OLDDIR/installer_grub $OLDDIR $INSTDIR $1 $4
+fi
+umount $INSTDIR

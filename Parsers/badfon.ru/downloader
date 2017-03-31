@@ -1,0 +1,43 @@
+#!/usr/bin/perl
+die "Usage: $0 <url> <pages>|0 to max pages" unless @ARGV == 2;
+my $url=shift;
+my $max=shift;
+if(substr($url,-1) eq "/"){$url=substr($url,0,-1);}
+if(!-d "download"){mkdir "download";}
+if(!-d "download/temp"){mkdir "download/temp";}
+if(!-d "download/ok"){mkdir "download/ok";}
+use LWP::Simple;
+use LWP 5.64;
+$browser=LWP::UserAgent->new;
+$browser->agent('Mozilla/4.76 [en] (Win98; U)');
+$browser->cookie_jar({});
+use utf8;
+$page=1;
+$data=get "$url/index-1.html";
+(undef,$val)=split('<div class="pageinfo">',$data);
+($val)=split('</div>',$val);
+(undef,$pageMax)=split('>',$val);
+#for($i=$page;$i<=1;$i++){
+if($max){$pageMax=$max;}
+for($i=$page;$i<=$pageMax;$i++){
+print "page: $i/$pageMax\n";
+	$page=get "$url/index-$i.html";
+	foreach my $str(split('</div>',$page)){
+		(undef,$str,undef,$imgp)=split("<",$str);
+		(undef,$class)=split(" ",$str);
+		if($class ne 'class="wallpaper"'){next;}
+		(undef,$imgp)=split('="',$imgp);
+		($imgp)=split('"',$imgp);
+		$imgp=get "$imgp";
+		(undef,$img)=split('itemprop="contentUrl"',$imgp);
+		($img)=split('itemprop="thumbnail"',$img);
+		(undef,$img)=split('"',$img);
+		@tmp=split("/",$img);
+		$name=pop @tmp;
+		if(!-f "download/temp/$name"){
+			$browser->show_progress(1);
+			$browser->mirror($img,"download/temp/$name");
+			$browser->show_progress(0);
+		}
+	}
+}

@@ -1,0 +1,34 @@
+#!/usr/bin/perl
+$cmd=$ARGV[0];
+$url=$ARGV[1];
+$mountdir=$ARGV[2];
+if($cmd eq "mount"){mount();}
+if($cmd eq "list"){
+	mount();
+	@list=();
+	foreach $str(glob "$mountdir/*"){
+		@tmp=split "/",$str;
+		$name=pop @tmp;
+		($device,$inode,$mode,$nlink,$uid,$gid,$rdev,$size,$atime,$mtime,$ctime,$blksize,$blocks)=stat($str);
+		push @list,"$name:$size";
+		if(-d $str and !-f "$str/image"){pop @list;}
+	}
+	$list=join "=",@list;
+	open fs,">list.tmp";
+	print fs $list;
+	close fs;
+	$cmd="umount";
+}
+if($cmd eq "umount"){
+	system "sudo umount $url";
+	rmdir $url;
+}
+sub mount{
+	print "Connecting to smb://$url ...\n";
+	print "USERNAME: ";$login=<STDIN>;chomp $login;
+	system "stty -echo";
+	print "PASSWORD: ";$pass=<STDIN>;chomp $pass;print "\n";
+	system "stty echo";
+	mkdir $mountdir;
+	system "sudo mount -t cifs -o rw,uid=1000,gid=1000,dir_mode=0775,file_mode=0664,user=$login,password=$pass //$url $mountdir";
+}

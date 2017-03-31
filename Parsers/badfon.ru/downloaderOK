@@ -1,0 +1,30 @@
+#!/usr/bin/perl
+use LWP::Simple;
+use LWP 5.64;
+use utf8;
+use HTTP::Cookies;
+$browser=LWP::UserAgent->new;
+$browser->agent('Mozilla/4.76 [en] (Win98; U)');
+$browser->cookie_jar({});
+$url="https://www.badfon.ru/user/enter.php";
+$response=$browser->post($url,["login" => "LOGIN","pas" => "PASS"]);
+print $response->status_line;
+print $response->content;
+foreach $file(glob("download/ok/*")){
+	@tmp=split("/",$file);
+	$name=pop @tmp;
+	($iname)=split("[.]",$name);
+	$url="https://www.badfon.ru/download/$iname/1440x900";
+	#print "[$file,$name,$iname]\n";
+	$data=get $url;
+	(undef,$img)=split("</small>",$data);
+	(undef,$img)=split('<img src="',$img);
+	($img)=split('"',$img);
+	#print "[$img]";
+	if(!-f "download/$name"){
+		$browser->show_progress(1);
+		$browser->mirror($img,"download/$name");
+		$browser->show_progress(0);
+	}
+	if(-f "download/$name"){unlink $file;}
+}

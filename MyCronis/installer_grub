@@ -1,0 +1,19 @@
+#!/bin/bash
+echo "Configure ..."
+#определяем UUID устройства, куда будем ставить
+UUID=`blkid -p $3 -o udev | grep "ID_FS_UUID=" > /tmp/tmp && sed -i "s/ID_FS_UUID=//" /tmp/tmp && cat /tmp/tmp && rm /tmp/tmp`;
+#файл-заготовка для конфига grub и fstab
+GRUBCFG="$2/boot/grub/grub.cfg";
+FSTAB="$2/etc/fstab";
+cp $1/grub/splash.png $2/boot/boot/grub/linuxmint.png
+cp $1/grub/splash.png $2/boot/grub/linuxmint.png
+cp $1/grub/grub_o.cfg $GRUBCFG
+sed -i "s/uuidhere/$UUID/" $GRUBCFG
+#подставляем UUID и grub-устройство
+cp $1/grub/fstab_o $FSTAB
+sed -i "s/uuidhere/$UUID/" $FSTAB
+#устанавливаем grub
+#grub-install --root-directory=$2 '(hd0)'
+grub-install --root-directory=$2 $4
+update-grub --output=$GRUBCFG
+echo "Completed"

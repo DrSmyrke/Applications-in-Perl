@@ -1,0 +1,10 @@
+#!/usr/bin/perl
+$home=$ENV{"HOME"};
+$mountdir="/tmp/mycronis";
+$valgreen="#01B003";
+$valorange="#FF7200";
+$valblack="#000000";
+$valfiol="#9600D8";
+$valna="#ff9900";
+$term="xterm -e";
+$packlevel=3;		# Степень сжатия данных, если поддерживается [0-9]

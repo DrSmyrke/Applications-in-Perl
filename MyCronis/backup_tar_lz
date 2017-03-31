@@ -1,0 +1,10 @@
+#!/bin/bash
+BACKUPDIR=/tmp/backup
+umount $1
+mkdir $BACKUPDIR
+mount $1 $BACKUPDIR
+cd $BACKUPDIR
+tar --lzma -czvpf $3.tar.lz --exclude=/$3.tar.lz *
+#sudo tar --lzma -cvpf /mnt/backup/ubuntu-sda1.tar.lzma /mnt/root
+mv $3.tar.lz $2/
+umount $BACKUPDIR
