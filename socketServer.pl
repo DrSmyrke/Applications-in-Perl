@@ -28,8 +28,12 @@ exit if ($^O eq 'MSWin32'); # windows must die;
 
 
 ### init data ###
-my ($port,$mode,$pidfile)=(7300,0,"server.pid");
+my $mode=0;
 my %ipTable;
+my %settings;
+$settings{"serverPort"}=25;
+$settings{"pidfile"}="server.pid";
+
 
 
 
@@ -37,8 +41,8 @@ my %ipTable;
 $i=0;
 foreach $str(@ARGV){
 	if($str eq "--daemon"){$mode=1;}
-	if($str eq "--stop"){stopApp(getMyPID($pidfile));exit 0;}
-	if($str eq "-pidfile"){$pidfile=$ARGV[$i+1];}
+	if($str eq "--stop"){stopApp();}
+	if($str eq "-pidfile"){$settings{"pidfile"}=$ARGV[$i+1];}
 	if($str eq "-p" or $str eq "--port"){$port=$ARGV[$i+1];}
 	if($str eq "-h" or $str eq "--help"){getHelp();}
 	$i++;
@@ -51,17 +55,44 @@ $SIG{INT}="sigExit";
 $SIG{KILL}="sigExit";
 #$SIG{CHILD}="IGNORE";
 $SIG{TERM}="sigExit";
+use Carp;
+use Fcntl qw(:DEFAULT :flock);
 use strict;
 use IO::Socket;
 use IO::Select;
 my $ioset=IO::Select->new;
-if($mode eq 0){if(getMyPID($pidfile)){print "NO EXECUTE DUBLICATE APPS\n";exit;}mainLoop();}
+
+my $pid = check_proc($settings{"pidfile"});
+if($pid){die "Proccess #$pid is running, NO EXECUTE DUBLICATE APPS!\n";exit;}
+if($mode eq 0){mainLoop();}
 if($mode eq 1){daemon();}
 sigExit();
 
 
 
 ### FUNCTIONS ###
+sub check_proc {
+	my ($file) = @_;
+	my $result;
+    sysopen LOCK, $file, O_RDWR|O_CREAT or croak "Don`t open file $file: $!";
+    if ( flock LOCK, LOCK_EX|LOCK_NB  ) {
+        truncate LOCK, 0 or croak "Don`t lock file $file: $!";
+        my $old_fh = select LOCK;
+        $| = 1;
+        select $old_fh;
+        print LOCK $$;
+    }
+    else {
+        $result = <LOCK>;
+        if (defined $result) {
+            chomp $result;
+        }else{
+            carp "PID not found in file $file";
+            $result = '0 but true';
+        }
+    }
+    return $result;
+}
 sub sendAllWithMe{
 	my $socket=shift @_;
 	my $mess=shift @_;
@@ -74,9 +105,9 @@ sub mainLoop{
 	print "SERVER [ ";
 	socket(SERVER,PF_INET,SOCK_STREAM,getprotobyname('tcp')) or print " ERROR]\n" and die "I could not create socket! ]\n";
 	setsockopt(SERVER,SOL_SOCKET,SO_REUSEADDR,1);
-	bind(SERVER,sockaddr_in($port,INADDR_ANY)) or die " I can not bind port! ]\n";
+	bind(SERVER,sockaddr_in($settings{"serverPort"},INADDR_ANY)) or die " I can not bind port! ]\n";
 	listen(SERVER,SOMAXCONN);
-	print "ACTIVATED ] PID: [$$] PORT: [$port]\n";
+	print "ACTIVATED ] PID: [$$] PORT: [$settings{serverPort}]\n";
 	$ioset->add(\*SERVER);
 	$ioset->add(\*STDIN);
 	while(1){
@@ -113,7 +144,6 @@ sub daemon{
 	use POSIX qw(setsid);
 	defined(my $rootPid = fork)   or die "Can't fork: $!";
 	if($rootPid==0){
-		if(getMyPID($pidfile)){print "NO EXECUTE DUBLICATE APPS\n";exit;}
 		setsid or die "Can't start a new session: $!";
 		chdir '/' or die "Can't chdir to /: $!";
 #		open STDIN, '/dev/null'   or die "Can't read /dev/null: $!";
@@ -129,29 +159,18 @@ sub daemon{
 #	exit if $pid; # я родитель, если получен id дочернего процесса
 	exit;
 }
-sub getMyPID{
-	my $pidfile=shift @_;
-	my $pid=0;
-	if(!-f $pidfile){
-		print "\nCreate [$pidfile] for [$$]\n";
-		open fs,">$pidfile";print fs "$$";close fs;
-	}else{
-		open fs,"<$pidfile";$pid=<fs>;close fs;
-	}
-	return $pid;
-}
 sub stopApp{
-	my $pid=shift @_;
+	open FS,"<$settings{pidfile}";my $pid=<FS>;close FS;chomp $pid;
 	if($pid){
 		print "KILLING [$pid]\n";
 		kill 'TERM',$pid;
 	}
-	unlink $pidfile;
+	exit;
 }
 sub sigExit{
 	close SERVER;
 	print "\nSERVER [ DEACTIVATED ]\n";
-	unlink $pidfile;
+	unlink $settings{"pidfile"};
 	exit;
 }
 sub getHelp{
@@ -160,8 +179,8 @@ sub getHelp{
 -h,--help			To see the current page
 --daemon			Run application as a daemon
 --stop				Stopping the application
--pidfile <FILE>			Determining PID file (default: $pidfile)
--p,--port <PORT>		Determination of the port which will be run a web server (default: $port)
+-pidfile <FILE>			Determining PID file (default: $settings{pidfile})
+-p,--port <PORT>		Determination of the port which will be run a web server (default: $settings{serverPort})
 ";
 	print "\n=== Thank you for choosing my application ===\n";
 	my ($device,$inode,$mode,$nlink,$uid,$gid,$rdev,$size,$atime,$mtime,$ctime,$blksize,$blocks)=stat($0);
@@ -263,4 +282,3 @@ sub saveUsers{
 	}
 	close fs;
 }
-
