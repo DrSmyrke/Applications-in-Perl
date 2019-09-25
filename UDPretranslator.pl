@@ -28,11 +28,11 @@ use IO::Socket;
 use IO::Select;
 
 my $ioset=IO::Select->new;
-my $port = 23;
-my $rport = 2323;
+die "Usage: $0 <listen_port:remote_port>" unless @ARGV == 1;
+my($listen_port,$remote_port)=split ':', shift();
 print "SERVER [ ";
-my $server = IO::Socket::INET->new(LocalPort => $port, Proto => 'udp') or print " ERROR]\n" and die "I could not create socket! ]\n";
-my $clientUDP=IO::Socket::INET->new(PeerAddr=>"localhost",PeerPort=>$rport,Proto=>'udp') or die "UDP client: $@";
+my $server = IO::Socket::INET->new(LocalPort => $listen_port, Proto => 'udp') or print " ERROR]\n" and die "I could not create socket! ]\n";
+my $clientUDP=IO::Socket::INET->new(PeerAddr=>"localhost",PeerPort=>$remote_port,Proto=>'udp') or die "UDP client: $@";
 print "ACTIVATED ] PID: [$$] PORT: [$port]\n";
 $ioset->add($server);
 while(1){
